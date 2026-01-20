@@ -28,8 +28,41 @@
         .container { display: flex; flex-direction: column; min-height: 100vh; }
         
         /* Login */
-        .login-container { display: flex; justify-content: center; align-items: center; min-height: 100vh; background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%); }
-        .login-box { background: white; border-radius: var(--border-radius); box-shadow: var(--shadow); width: 100%; max-width: 400px; padding: 2rem; text-align: center; }
+        .login-container { 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            min-height: 100vh; 
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            z-index: 9999;
+        }
+        .login-box { 
+            background: white; 
+            border-radius: var(--border-radius); 
+            box-shadow: var(--shadow); 
+            width: 100%; 
+            max-width: 400px; 
+            padding: 2rem; 
+            text-align: center; 
+        }
+        
+        .login-input {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 15px;
+            border: 1px solid #ddd;
+            border-radius: var(--border-radius);
+            font-size: 1rem;
+        }
+        
+        .login-input:focus {
+            outline: none;
+            border-color: var(--secondary-color);
+        }
 
         /* Header */
         header { background-color: var(--primary-color); color: white; padding: 1rem; box-shadow: var(--shadow); display: flex; justify-content: space-between; align-items: center; }
@@ -136,6 +169,13 @@
             @page { margin: 0; size: auto; }
             .btn, .no-print { display: none !important; }
         }
+        
+        .login-error {
+            color: #e74c3c;
+            font-size: 0.9rem;
+            margin-top: 10px;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -146,10 +186,12 @@
             <h2>VisionPlus Premium</h2>
             <p style="color: #666; margin-bottom: 20px;">Sistema Completo de Gestão Ótica</p>
             <form id="login-form">
-                <input type="text" id="login-user" placeholder="Usuário (admin)" required style="margin-bottom: 10px;">
-                <input type="password" id="login-pass" placeholder="Senha (admin)" required style="margin-bottom: 15px;">
+                <input type="text" id="login-user" class="login-input" placeholder="Usuário" required value="admin">
+                <input type="password" id="login-pass" class="login-input" placeholder="Senha" required value="admin">
                 <button type="submit" class="btn btn-primary" style="width: 100%;">ENTRAR</button>
+                <div class="login-error" id="login-error">Usuário ou senha incorretos!</div>
             </form>
+            <p style="margin-top: 15px; font-size: 0.8rem; color: #666;">Use: admin / admin</p>
         </div>
     </div>
 
@@ -163,7 +205,7 @@
                 </div>
             </div>
             <div>
-                <span id="user-display" style="margin-right: 15px;"><i class="fas fa-user"></i> admin</span>
+                <span id="user-display" style="margin-right: 15px;"><i class="fas fa-user"></i> Admin</span>
                 <button class="btn btn-sm btn-info" id="backup-btn" title="Backup"><i class="fas fa-download"></i></button>
                 <button class="btn btn-sm btn-danger" id="logout-btn"><i class="fas fa-sign-out-alt"></i> Sair</button>
             </div>
@@ -1170,21 +1212,20 @@
         let fornecedoresCache = [];
         let osCache = [];
         let consultasCache = [];
-        let usuarioAtual = 'admin';
+        let usuarioAtual = 'Admin';
 
         // --- INICIALIZAÇÃO ---
-        window.onload = () => {
+        window.onload = function() {
+            console.log('Página carregada, iniciando sistema...');
             initDB();
-            setupEvents();
-            checkAuth();
-            carregarVendedoresSelect();
-            carregarFornecedoresSelect();
         };
 
         function initDB() {
+            console.log('Inicializando banco de dados...');
             const request = indexedDB.open(DB_NAME, DB_VERSION);
             
-            request.onupgradeneeded = (e) => {
+            request.onupgradeneeded = function(e) {
+                console.log('Atualizando banco de dados...');
                 db = e.target.result;
                 
                 // Criar object stores
@@ -1197,103 +1238,177 @@
                 objectStores.forEach(storeName => {
                     if (!db.objectStoreNames.contains(storeName)) {
                         db.createObjectStore(storeName, { keyPath: 'id', autoIncrement: true });
+                        console.log('Object store criada:', storeName);
                     }
                 });
             };
 
-            request.onsuccess = (e) => {
+            request.onsuccess = function(e) {
+                console.log('Banco de dados aberto com sucesso!');
                 db = e.target.result;
+                
+                // Configurar eventos primeiro
+                setupEvents();
+                
+                // Carregar dados
                 loadConfig();
-                updateDashboard();
                 carregarDadosIniciais();
+                
+                // Verificar autenticação
+                checkAuth();
             };
             
-            request.onerror = (e) => {
+            request.onerror = function(e) {
                 console.error('Erro ao abrir banco de dados:', e.target.error);
                 alert('Erro ao inicializar banco de dados. Recarregue a página.');
             };
         }
         
         function carregarDadosIniciais() {
+            console.log('Carregando dados iniciais...');
             // Carregar caches
-            ['clientes', 'produtos', 'vendedores', 'fornecedores', 'ordens_servico', 'consultas'].forEach(tipo => {
-                db.transaction(tipo).objectStore(tipo).getAll().onsuccess = (e) => {
-                    if (tipo === 'clientes') clientesCache = e.target.result;
-                    if (tipo === 'produtos') produtosCache = e.target.result;
-                    if (tipo === 'vendedores') vendedoresCache = e.target.result;
-                    if (tipo === 'fornecedores') fornecedoresCache = e.target.result;
-                    if (tipo === 'ordens_servico') osCache = e.target.result;
-                    if (tipo === 'consultas') consultasCache = e.target.result;
+            const stores = [
+                {name: 'clientes', cacheVar: 'clientesCache'},
+                {name: 'produtos', cacheVar: 'produtosCache'},
+                {name: 'vendedores', cacheVar: 'vendedoresCache'},
+                {name: 'fornecedores', cacheVar: 'fornecedoresCache'},
+                {name: 'ordens_servico', cacheVar: 'osCache'},
+                {name: 'consultas', cacheVar: 'consultasCache'}
+            ];
+            
+            stores.forEach(store => {
+                const tx = db.transaction(store.name, 'readonly');
+                const objectStore = tx.objectStore(store.name);
+                const request = objectStore.getAll();
+                
+                request.onsuccess = function(e) {
+                    window[store.cacheVar] = e.target.result;
+                    console.log(`${store.name} carregados:`, e.target.result.length);
+                };
+                
+                request.onerror = function(e) {
+                    console.error(`Erro ao carregar ${store.name}:`, e.target.error);
                 };
             });
         }
 
         // --- AUTENTICAÇÃO ---
         function checkAuth() {
+            console.log('Verificando autenticação...');
             const user = sessionStorage.getItem('user');
+            console.log('Usuário na sessionStorage:', user);
+            
             if (user) {
+                console.log('Usuário autenticado:', user);
                 usuarioAtual = user;
-                document.getElementById('login-screen').style.display = 'none';
-                document.getElementById('app-container').style.display = 'flex';
-                document.getElementById('user-display').innerHTML = `<i class="fas fa-user"></i> ${user}`;
+                mostrarSistema();
+            } else {
+                console.log('Nenhum usuário autenticado, mostrando tela de login');
+                mostrarLogin();
             }
         }
 
-        document.getElementById('login-form').addEventListener('submit', (e) => {
-            e.preventDefault();
-            const u = document.getElementById('login-user').value;
-            const p = document.getElementById('login-pass').value;
+        function mostrarLogin() {
+            document.getElementById('login-screen').style.display = 'flex';
+            document.getElementById('app-container').style.display = 'none';
+            console.log('Tela de login exibida');
+        }
+
+        function mostrarSistema() {
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('app-container').style.display = 'flex';
+            document.getElementById('user-display').innerHTML = `<i class="fas fa-user"></i> ${usuarioAtual}`;
+            console.log('Sistema exibido para usuário:', usuarioAtual);
+            
+            // Atualizar dashboard após login
+            setTimeout(() => {
+                updateDashboard();
+                carregarVendedoresSelect();
+                carregarFornecedoresSelect();
+            }, 500);
+        }
+
+        function fazerLogin(u, p) {
+            console.log('Tentando login com:', u, p);
             
             // Login simples - em produção usar hash
             if (u === 'admin' && p === 'admin') {
-                sessionStorage.setItem('user', 'admin');
-                location.reload();
+                console.log('Login bem sucedido!');
+                sessionStorage.setItem('user', 'Admin');
+                usuarioAtual = 'Admin';
+                mostrarSistema();
+                return true;
             } else {
-                alert('Usuário ou senha incorretos!');
+                console.log('Login falhou!');
+                mostrarErroLogin();
+                return false;
             }
-        });
+        }
 
-        document.getElementById('logout-btn').onclick = () => {
-            sessionStorage.removeItem('user');
-            location.reload();
-        };
+        function mostrarErroLogin() {
+            const errorElement = document.getElementById('login-error');
+            if (errorElement) {
+                errorElement.style.display = 'block';
+                setTimeout(() => {
+                    errorElement.style.display = 'none';
+                }, 3000);
+            }
+        }
 
         // --- NAVEGAÇÃO ---
         function navTo(pageId) {
+            console.log('Navegando para:', pageId);
             document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
             document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-            document.getElementById(pageId + '-page').classList.add('active');
-            document.querySelector(`[data-page="${pageId}"]`).classList.add('active');
+            
+            const pageElement = document.getElementById(pageId + '-page');
+            if (pageElement) {
+                pageElement.classList.add('active');
+            }
+            
+            const navLink = document.querySelector(`[data-page="${pageId}"]`);
+            if (navLink) {
+                navLink.classList.add('active');
+            }
             
             // Carregar dados específicos da página
-            if(pageId === 'produtos') listarProdutos();
-            if(pageId === 'clientes') listarClientes();
-            if(pageId === 'vendas') listarVendas();
-            if(pageId === 'orcamentos') listarOrcamentos();
-            if(pageId === 'ordens-servico') listarOS();
-            if(pageId === 'consultas') listarConsultas();
-            if(pageId === 'fornecedores') listarFornecedores();
-            if(pageId === 'dashboard') updateDashboard();
-            if(pageId === 'relatorios') carregarRelatorios();
-            if(pageId === 'config') carregarConfiguracoes();
+            switch(pageId) {
+                case 'produtos': listarProdutos(); break;
+                case 'clientes': listarClientes(); break;
+                case 'vendas': listarVendas(); break;
+                case 'orcamentos': listarOrcamentos(); break;
+                case 'ordens-servico': listarOS(); break;
+                case 'consultas': listarConsultas(); break;
+                case 'fornecedores': listarFornecedores(); break;
+                case 'dashboard': updateDashboard(); break;
+                case 'relatorios': carregarRelatorios(); break;
+                case 'config': carregarConfiguracoes(); break;
+            }
         }
-
-        document.querySelectorAll('.nav-link').forEach(link => {
-            link.onclick = (e) => { e.preventDefault(); navTo(link.dataset.page); };
-        });
 
         // --- FUNÇÕES DE CONFIGURAÇÃO ---
         function loadConfig() {
+            console.log('Carregando configurações...');
             const tx = db.transaction('config', 'readonly');
-            tx.objectStore('config').get(1).onsuccess = (e) => {
+            const request = tx.objectStore('config').get(1);
+            
+            request.onsuccess = function(e) {
                 if (e.target.result) {
                     config = e.target.result;
+                    console.log('Configurações carregadas:', config);
                     applyConfig();
+                } else {
+                    console.log('Nenhuma configuração encontrada, usando padrão');
                 }
+            };
+            
+            request.onerror = function(e) {
+                console.error('Erro ao carregar configurações:', e.target.error);
             };
         }
 
         function applyConfig() {
+            console.log('Aplicando configurações...');
             document.getElementById('store-name-display').innerText = config.nome || 'Ótica VisionPlus Premium';
             if (config.logo) {
                 const img = document.getElementById('header-logo');
@@ -1314,6 +1429,7 @@
         }
 
         function salvarConfig() {
+            console.log('Salvando configurações...');
             config.nome = document.getElementById('conf-nome').value;
             config.tel = document.getElementById('conf-tel').value;
             config.end = document.getElementById('conf-end').value;
@@ -1326,16 +1442,31 @@
 
             const tx = db.transaction('config', 'readwrite');
             tx.objectStore('config').put(config);
-            alert('Configurações salvas!');
-            applyConfig();
+            
+            tx.oncomplete = function() {
+                alert('Configurações salvas!');
+                applyConfig();
+            };
+            
+            tx.onerror = function(e) {
+                console.error('Erro ao salvar configurações:', e.target.error);
+                alert('Erro ao salvar configurações!');
+            };
         }
 
         function abrirConfigTab(tab) {
             document.querySelectorAll('#config-page .tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('#config-page .form-container').forEach(f => f.style.display = 'none');
             
-            document.querySelector(`[onclick="abrirConfigTab('${tab}')"]`).classList.add('active');
-            document.getElementById(`config-${tab}`).style.display = 'block';
+            const tabElement = document.querySelector(`[onclick="abrirConfigTab('${tab}')"]`);
+            if (tabElement) {
+                tabElement.classList.add('active');
+            }
+            
+            const formElement = document.getElementById(`config-${tab}`);
+            if (formElement) {
+                formElement.style.display = 'block';
+            }
             
             if(tab === 'vendedores') listarVendedoresConfig();
             if(tab === 'backup') carregarInfoBackup();
@@ -1422,11 +1553,17 @@
 
             const tx = db.transaction('produtos', 'readwrite');
             tx.objectStore('produtos').put(data);
-            tx.oncomplete = () => {
+            
+            tx.oncomplete = function() {
                 document.getElementById('modal-produto').classList.remove('active');
                 listarProdutos();
                 updateDashboard();
                 produtosCache = [...produtosCache.filter(p => p.id !== data.id), data];
+            };
+            
+            tx.onerror = function(e) {
+                console.error('Erro ao salvar produto:', e.target.error);
+                alert('Erro ao salvar produto!');
             };
         }
 
@@ -1434,7 +1571,7 @@
             const tbody = document.getElementById('produtos-list');
             tbody.innerHTML = '';
             
-            db.transaction('produtos').objectStore('produtos').getAll().onsuccess = (e) => {
+            db.transaction('produtos').objectStore('produtos').getAll().onsuccess = function(e) {
                 produtosCache = e.target.result;
                 filterProdutos();
             };
@@ -1545,7 +1682,7 @@
             const selectProd = document.getElementById('compra-produto');
             selectProd.innerHTML = '<option value="">Selecione...</option>';
             produtosCache.forEach(p => {
-                selectProd.innerHTML += `<option value="${p.id}" data-preco="${p.custo}">${p.nome}</option>';
+                selectProd.innerHTML += `<option value="${p.id}" data-preco="${p.custo}">${p.nome}</option>`;
             });
             
             document.getElementById('compra-produto').onchange = function() {
@@ -1639,7 +1776,7 @@
             // Atualizar estoque dos produtos
             const txProd = db.transaction('produtos', 'readwrite');
             carrinhoCompra.forEach(item => {
-                txProd.objectStore('produtos').get(item.id).onsuccess = (e) => {
+                txProd.objectStore('produtos').get(item.id).onsuccess = function(e) {
                     const produto = e.target.result;
                     produto.qtd += item.qtd;
                     // Atualizar custo se for diferente
@@ -1651,7 +1788,7 @@
             });
             
             // Salvar compra
-            db.transaction('compras', 'readwrite').objectStore('compras').add(compraData).onsuccess = () => {
+            db.transaction('compras', 'readwrite').objectStore('compras').add(compraData).onsuccess = function() {
                 alert('Compra registrada com sucesso!');
                 document.getElementById('modal-compra').classList.remove('active');
                 listarProdutos();
@@ -1681,7 +1818,7 @@
             const id = document.getElementById('forn-id').value;
             if(id) data.id = parseInt(id);
 
-            db.transaction('fornecedores', 'readwrite').objectStore('fornecedores').put(data).onsuccess = () => {
+            db.transaction('fornecedores', 'readwrite').objectStore('fornecedores').put(data).onsuccess = function() {
                 document.getElementById('modal-fornecedor').classList.remove('active');
                 listarFornecedores();
                 fornecedoresCache = [...fornecedoresCache.filter(f => f.id !== data.id), data];
@@ -1693,7 +1830,7 @@
             const tbody = document.getElementById('fornecedores-list');
             tbody.innerHTML = '';
             
-            db.transaction('fornecedores').objectStore('fornecedores').getAll().onsuccess = (e) => {
+            db.transaction('fornecedores').objectStore('fornecedores').getAll().onsuccess = function(e) {
                 fornecedoresCache = e.target.result;
                 fornecedoresCache.forEach(f => {
                     // Contar produtos deste fornecedor
@@ -1761,7 +1898,7 @@
             const id = document.getElementById('cli-id').value;
             if(id) data.id = parseInt(id);
 
-            db.transaction('clientes', 'readwrite').objectStore('clientes').put(data).onsuccess = () => {
+            db.transaction('clientes', 'readwrite').objectStore('clientes').put(data).onsuccess = function() {
                 document.getElementById('modal-cliente').classList.remove('active');
                 listarClientes();
                 clientesCache = [...clientesCache.filter(c => c.id !== data.id), data];
@@ -1769,7 +1906,7 @@
         }
 
         function listarClientes() {
-            db.transaction('clientes').objectStore('clientes').getAll().onsuccess = (e) => {
+            db.transaction('clientes').objectStore('clientes').getAll().onsuccess = function(e) {
                 clientesCache = e.target.result;
                 filterClientes();
             };
@@ -1781,7 +1918,7 @@
             tbody.innerHTML = '';
             
             // Buscar histórico de compras para cada cliente
-            db.transaction('vendas').objectStore('vendas').getAll().onsuccess = (e) => {
+            db.transaction('vendas').objectStore('vendas').getAll().onsuccess = function(e) {
                 const vendas = e.target.result;
                 
                 clientesCache.filter(c => 
@@ -1839,7 +1976,7 @@
             const cliente = clientesCache.find(c => c.id === id);
             if(!cliente) return;
             
-            db.transaction('vendas').objectStore('vendas').getAll().onsuccess = (e) => {
+            db.transaction('vendas').objectStore('vendas').getAll().onsuccess = function(e) {
                 const vendasCliente = e.target.result.filter(v => v.clienteId === id);
                 
                 let historico = `<h3>Histórico de ${cliente.nome}</h3>`;
@@ -1907,37 +2044,11 @@
             renderCarrinho();
             
             // Foco no input do leitor
-            setTimeout(() => document.getElementById('venda-search').focus(), 500);
+            setTimeout(() => {
+                const searchInput = document.getElementById('venda-search');
+                if (searchInput) searchInput.focus();
+            }, 500);
         }
-
-        // Lógica do Leitor de Código de Barras
-        document.getElementById('venda-search').addEventListener('keydown', function(e) {
-            if(e.key === 'Enter') {
-                e.preventDefault();
-                const termo = this.value.trim();
-                if(!termo) return;
-
-                // Busca exata por código ou parcial por nome
-                let prod = produtosCache.find(p => p.cod === termo);
-                
-                if(!prod) {
-                    // Se não achou código, tenta nome
-                    const matches = produtosCache.filter(p => p.nome.toLowerCase().includes(termo.toLowerCase()));
-                    if(matches.length === 1) prod = matches[0];
-                }
-
-                if(prod) {
-                    const qtd = parseInt(document.getElementById('venda-qtd-add').value);
-                    addAoCarrinho(prod, qtd);
-                    this.value = '';
-                    document.getElementById('venda-qtd-add').value = 1;
-                    // Beep sound simulation
-                    try { new AudioContext().createOscillator().start().stop(); } catch(e) {}
-                } else {
-                    alert('Produto não encontrado!');
-                }
-            }
-        });
 
         function addAoCarrinho(prod, qtd) {
             const existe = carrinho.find(i => i.id === prod.id);
@@ -2031,10 +2142,6 @@
             document.getElementById('venda-pagamentos').appendChild(div);
         }
 
-        function calcularTroco() {
-            // Implementar cálculo de troco se necessário
-        }
-
         function finalizarVenda(isOrcamento) {
             if(carrinho.length === 0) return alert('Carrinho vazio!');
             
@@ -2083,7 +2190,7 @@
                 // Baixar Estoque
                 const txProd = db.transaction('produtos', 'readwrite');
                 carrinho.forEach(item => {
-                    txProd.objectStore('produtos').get(item.id).onsuccess = (e) => {
+                    txProd.objectStore('produtos').get(item.id).onsuccess = function(e) {
                         const p = e.target.result;
                         p.qtd -= item.qtd;
                         txProd.objectStore('produtos').put(p);
@@ -2110,12 +2217,12 @@
                     }
                 }
                 
-                db.transaction('vendas', 'readwrite').objectStore('vendas').add(registro).onsuccess = (e) => {
+                db.transaction('vendas', 'readwrite').objectStore('vendas').add(registro).onsuccess = function(e) {
                     const vendaId = e.target.result;
                     
                     // Atualizar ID da venda na comissão
                     if(registro.comissao) {
-                        db.transaction('comissoes', 'readwrite').objectStore('comissoes').openCursor().onsuccess = (ev) => {
+                        db.transaction('comissoes', 'readwrite').objectStore('comissoes').openCursor().onsuccess = function(ev) {
                             const cursor = ev.target.result;
                             if(cursor) {
                                 if(cursor.value.vendaId === null) {
@@ -2139,7 +2246,7 @@
                 // Processar Orçamento
                 registro.validade = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 7 dias
                 
-                db.transaction('orcamentos', 'readwrite').objectStore('orcamentos').add(registro).onsuccess = () => {
+                db.transaction('orcamentos', 'readwrite').objectStore('orcamentos').add(registro).onsuccess = function() {
                     alert('Orçamento Salvo!');
                     document.getElementById('modal-venda').classList.remove('active');
                     listarOrcamentos();
@@ -2189,7 +2296,7 @@
             const id = document.getElementById('os-id').value;
             if(id) data.id = parseInt(id);
 
-            db.transaction('ordens_servico', 'readwrite').objectStore('ordens_servico').put(data).onsuccess = () => {
+            db.transaction('ordens_servico', 'readwrite').objectStore('ordens_servico').put(data).onsuccess = function() {
                 document.getElementById('modal-os').classList.remove('active');
                 listarOS();
                 updateDashboard();
@@ -2201,7 +2308,7 @@
             const tbody = document.getElementById('os-list');
             tbody.innerHTML = '';
             
-            db.transaction('ordens_servico').objectStore('ordens_servico').getAll().onsuccess = (e) => {
+            db.transaction('ordens_servico').objectStore('ordens_servico').getAll().onsuccess = function(e) {
                 osCache = e.target.result;
                 filtrarOS('pendente');
             };
@@ -2213,7 +2320,10 @@
             
             // Atualizar tabs ativas
             document.querySelectorAll('#ordens-servico-page .tab').forEach(tab => tab.classList.remove('active'));
-            document.querySelector(`[onclick="filtrarOS('${status}')"]`).classList.add('active');
+            const tabElement = document.querySelector(`[onclick="filtrarOS('${status}')"]`);
+            if (tabElement) {
+                tabElement.classList.add('active');
+            }
             
             let osFiltradas = osCache;
             
@@ -2266,7 +2376,7 @@
             const os = osCache.find(o => o.id === id);
             if(os) {
                 os.status = status;
-                db.transaction('ordens_servico', 'readwrite').objectStore('ordens_servico').put(os).onsuccess = () => {
+                db.transaction('ordens_servico', 'readwrite').objectStore('ordens_servico').put(os).onsuccess = function() {
                     listarOS();
                     updateDashboard();
                     alert(`OS #${id} marcada como ${status}`);
@@ -2311,7 +2421,7 @@
             const id = document.getElementById('consulta-id').value;
             if(id) data.id = parseInt(id);
 
-            db.transaction('consultas', 'readwrite').objectStore('consultas').put(data).onsuccess = () => {
+            db.transaction('consultas', 'readwrite').objectStore('consultas').put(data).onsuccess = function() {
                 document.getElementById('modal-consulta').classList.remove('active');
                 listarConsultas();
                 consultasCache = [...consultasCache.filter(c => c.id !== data.id), data];
@@ -2322,7 +2432,7 @@
             const tbody = document.getElementById('consultas-list');
             tbody.innerHTML = '';
             
-            db.transaction('consultas').objectStore('consultas').getAll().onsuccess = (e) => {
+            db.transaction('consultas').objectStore('consultas').getAll().onsuccess = function(e) {
                 consultasCache = e.target.result;
                 filterConsultas();
             };
@@ -2421,7 +2531,7 @@
             const id = document.getElementById('vend-id').value;
             if(id) data.id = parseInt(id);
 
-            db.transaction('vendedores', 'readwrite').objectStore('vendedores').put(data).onsuccess = () => {
+            db.transaction('vendedores', 'readwrite').objectStore('vendedores').put(data).onsuccess = function() {
                 document.getElementById('modal-vendedor').classList.remove('active');
                 listarVendedoresConfig();
                 vendedoresCache = [...vendedoresCache.filter(v => v.id !== data.id), data];
@@ -2435,7 +2545,7 @@
             
             vendedoresCache.forEach(v => {
                 // Calcular comissões pendentes
-                db.transaction('comissoes').objectStore('comissoes').getAll().onsuccess = (e) => {
+                db.transaction('comissoes').objectStore('comissoes').getAll().onsuccess = function(e) {
                     const comissoes = e.target.result.filter(c => c.vendedorId === v.id && c.status === 'pendente');
                     const totalPendente = comissoes.reduce((acc, c) => acc + c.valor, 0);
                     
@@ -2480,7 +2590,7 @@
             const tbody = document.getElementById('vendas-list');
             tbody.innerHTML = '';
             
-            db.transaction('vendas').objectStore('vendas').openCursor(null, 'prev').onsuccess = (e) => {
+            db.transaction('vendas').objectStore('vendas').openCursor(null, 'prev').onsuccess = function(e) {
                 const cursor = e.target.result;
                 if(cursor) {
                     const v = cursor.value;
@@ -2505,16 +2615,11 @@
             };
         }
 
-        function filtrarVendas() {
-            // Implementar filtros avançados
-            listarVendas();
-        }
-
         function listarOrcamentos() {
             const tbody = document.getElementById('orcamentos-list');
             tbody.innerHTML = '';
             
-            db.transaction('orcamentos').objectStore('orcamentos').openCursor(null, 'prev').onsuccess = (e) => {
+            db.transaction('orcamentos').objectStore('orcamentos').openCursor(null, 'prev').onsuccess = function(e) {
                 const cursor = e.target.result;
                 if(cursor) {
                     const v = cursor.value;
@@ -2542,7 +2647,7 @@
         }
 
         function carregarOrcamentoVenda(id) {
-            db.transaction('orcamentos').objectStore('orcamentos').get(id).onsuccess = (e) => {
+            db.transaction('orcamentos').objectStore('orcamentos').get(id).onsuccess = function(e) {
                 const orcamento = e.target.result;
                 if(orcamento) {
                     openVendaModal(false);
@@ -2561,7 +2666,7 @@
 
         function excluirOrcamento(id) {
             if(confirm('Deseja excluir este orçamento?')) {
-                db.transaction('orcamentos', 'readwrite').objectStore('orcamentos').delete(id).onsuccess = () => {
+                db.transaction('orcamentos', 'readwrite').objectStore('orcamentos').delete(id).onsuccess = function() {
                     listarOrcamentos();
                 };
             }
@@ -2608,10 +2713,11 @@ Temos novidades e promoções especiais para você. Venha nos visitar!`;
 
         // --- DASHBOARD & ALERTAS ---
         function updateDashboard() {
+            console.log('Atualizando dashboard...');
             const hoje = new Date().toISOString().split('T')[0];
             
             // Vendas Hoje
-            db.transaction('vendas').objectStore('vendas').getAll().onsuccess = (e) => {
+            db.transaction('vendas').objectStore('vendas').getAll().onsuccess = function(e) {
                 const vendasHoje = e.target.result.filter(v => v.data === hoje);
                 const totalHoje = vendasHoje.reduce((acc, v) => acc + v.total, 0);
                 document.getElementById('dash-vendas-hoje').innerText = `R$ ${totalHoje.toFixed(2)}`;
@@ -2621,7 +2727,7 @@ Temos novidades e promoções especiais para você. Venha nos visitar!`;
             };
 
             // OS Hoje
-            db.transaction('ordens_servico').objectStore('ordens_servico').getAll().onsuccess = (e) => {
+            db.transaction('ordens_servico').objectStore('ordens_servico').getAll().onsuccess = function(e) {
                 const osHoje = e.target.result.filter(o => o.dataEntrega === hoje && o.status !== 'concluido');
                 document.getElementById('dash-os-hoje').innerText = osHoje.length;
                 
@@ -2649,7 +2755,7 @@ Temos novidades e promoções especiais para você. Venha nos visitar!`;
             const listaEstoque = document.getElementById('dash-estoque-baixo');
             listaEstoque.innerHTML = '';
             
-            db.transaction('produtos').objectStore('produtos').getAll().onsuccess = (e) => {
+            db.transaction('produtos').objectStore('produtos').getAll().onsuccess = function(e) {
                 const baixos = e.target.result.filter(p => p.qtd <= p.min);
                 if(baixos.length === 0) {
                     listaEstoque.innerHTML = '<li>Tudo ok no estoque!</li>';
@@ -2668,7 +2774,7 @@ Temos novidades e promoções especiais para você. Venha nos visitar!`;
             const listaNiver = document.getElementById('dash-aniversariantes');
             listaNiver.innerHTML = '';
             
-            db.transaction('clientes').objectStore('clientes').getAll().onsuccess = (e) => {
+            db.transaction('clientes').objectStore('clientes').getAll().onsuccess = function(e) {
                 const aniversariantes = e.target.result.filter(c => {
                     if(!c.nasc) return false;
                     const d = new Date(c.nasc);
@@ -2692,7 +2798,10 @@ Temos novidades e promoções especiais para você. Venha nos visitar!`;
         }
 
         function atualizarGraficoVendas(vendas) {
-            const ctx = document.getElementById('chart-vendas').getContext('2d');
+            const ctx = document.getElementById('chart-vendas');
+            if (!ctx) return;
+            
+            const ctx2d = ctx.getContext('2d');
             
             // Agrupar vendas dos últimos 7 dias
             const labels = [];
@@ -2714,7 +2823,7 @@ Temos novidades e promoções especiais para você. Venha nos visitar!`;
                 window.vendasChart.destroy();
             }
             
-            window.vendasChart = new Chart(ctx, {
+            window.vendasChart = new Chart(ctx2d, {
                 type: 'line',
                 data: {
                     labels: labels,
@@ -2749,7 +2858,10 @@ Temos novidades e promoções especiais para você. Venha nos visitar!`;
         }
 
         function atualizarGraficoProdutos(produtos) {
-            const ctx = document.getElementById('chart-produtos').getContext('2d');
+            const ctx = document.getElementById('chart-produtos');
+            if (!ctx) return;
+            
+            const ctx2d = ctx.getContext('2d');
             
             // Produtos mais vendidos (simulação - em produção pegar do histórico)
             const produtosMaisVendidos = produtos
@@ -2763,7 +2875,7 @@ Temos novidades e promoções especiais para você. Venha nos visitar!`;
                 window.produtosChart.destroy();
             }
             
-            window.produtosChart = new Chart(ctx, {
+            window.produtosChart = new Chart(ctx2d, {
                 type: 'bar',
                 data: {
                     labels: labels,
@@ -2986,244 +3098,6 @@ ${config.tel ? `Telefone: ${config.tel}` : ''}`;
             }, 500);
         }
 
-        // --- RELATÓRIOS ---
-        function carregarRelatorios() {
-            // Carregar dados iniciais para relatórios
-        }
-
-        function abrirRelatorio(tipo) {
-            let titulo = '';
-            let conteudo = '';
-            
-            switch(tipo) {
-                case 'vendas':
-                    titulo = 'Relatório de Vendas';
-                    db.transaction('vendas').objectStore('vendas').getAll().onsuccess = (e) => {
-                        const vendas = e.target.result;
-                        const totalVendas = vendas.reduce((acc, v) => acc + v.total, 0);
-                        const mediaVenda = vendas.length > 0 ? totalVendas / vendas.length : 0;
-                        
-                        conteudo = `
-                            <h3>Relatório de Vendas</h3>
-                            <p>Período: Total</p>
-                            <div class="cards-container">
-                                <div class="card">
-                                    <div class="card-title">Total de Vendas</div>
-                                    <div class="card-value">${vendas.length}</div>
-                                </div>
-                                <div class="card">
-                                    <div class="card-title">Valor Total</div>
-                                    <div class="card-value">R$ ${totalVendas.toFixed(2)}</div>
-                                </div>
-                                <div class="card">
-                                    <div class="card-title">Ticket Médio</div>
-                                    <div class="card-value">R$ ${mediaVenda.toFixed(2)}</div>
-                                </div>
-                            </div>
-                        `;
-                        
-                        document.getElementById('relatorio-resultado').innerHTML = conteudo;
-                    };
-                    break;
-                    
-                case 'estoque':
-                    titulo = 'Relatório de Estoque';
-                    db.transaction('produtos').objectStore('produtos').getAll().onsuccess = (e) => {
-                        const produtos = e.target.result;
-                        const valorTotalEstoque = produtos.reduce((acc, p) => acc + (p.custo * p.qtd), 0);
-                        const valorTotalVenda = produtos.reduce((acc, p) => acc + (p.preco * p.qtd), 0);
-                        
-                        conteudo = `
-                            <h3>Relatório de Estoque</h3>
-                            <div class="cards-container">
-                                <div class="card">
-                                    <div class="card-title">Total de Produtos</div>
-                                    <div class="card-value">${produtos.length}</div>
-                                </div>
-                                <div class="card">
-                                    <div class="card-title">Valor em Estoque (Custo)</div>
-                                    <div class="card-value">R$ ${valorTotalEstoque.toFixed(2)}</div>
-                                </div>
-                                <div class="card">
-                                    <div class="card-title">Valor em Estoque (Venda)</div>
-                                    <div class="card-value">R$ ${valorTotalVenda.toFixed(2)}</div>
-                                </div>
-                            </div>
-                            <p>Produtos com estoque baixo: ${produtos.filter(p => p.qtd <= p.min).length}</p>
-                            <p>Produtos sem estoque: ${produtos.filter(p => p.qtd === 0).length}</p>
-                        `;
-                        
-                        document.getElementById('relatorio-resultado').innerHTML = conteudo;
-                    };
-                    break;
-                    
-                default:
-                    conteudo = `<p>Selecione um tipo de relatório e clique em Gerar.</p>`;
-            }
-        }
-
-        function gerarRelatorioPersonalizado() {
-            const tipo = document.getElementById('relatorio-tipo').value;
-            const inicio = document.getElementById('relatorio-inicio').value;
-            const fim = document.getElementById('relatorio-fim').value;
-            
-            alert(`Relatório ${tipo} de ${inicio} até ${fim} gerado!`);
-            // Implementar geração detalhada do relatório
-        }
-
-        function gerarRelatorioDiario() {
-            const hoje = new Date().toISOString().split('T')[0];
-            
-            db.transaction('vendas').objectStore('vendas').getAll().onsuccess = (e) => {
-                const vendasHoje = e.target.result.filter(v => v.data === hoje);
-                const totalHoje = vendasHoje.reduce((acc, v) => acc + v.total, 0);
-                
-                let relatorio = `
-                    <div style="padding: 20px; font-family: Arial, sans-serif;">
-                        <h2>Relatório Diário - ${new Date().toLocaleDateString()}</h2>
-                        <h3>Resumo</h3>
-                        <p>Total de Vendas: ${vendasHoje.length}</p>
-                        <p>Valor Total: R$ ${totalHoje.toFixed(2)}</p>
-                        
-                        <h3>Detalhes das Vendas</h3>
-                `;
-                
-                if(vendasHoje.length > 0) {
-                    relatorio += `<table border="1" style="width:100%; border-collapse:collapse;">`;
-                    relatorio += `<tr><th>ID</th><th>Cliente</th><th>Valor</th><th>Pagamento</th></tr>`;
-                    
-                    vendasHoje.forEach(v => {
-                        const cliente = getClientName(v.clienteId);
-                        relatorio += `<tr>
-                            <td>${v.id}</td>
-                            <td>${cliente}</td>
-                            <td>R$ ${v.total.toFixed(2)}</td>
-                            <td>${v.pagamentos ? v.pagamentos.map(p => p.metodo).join(', ') : 'N/A'}</td>
-                        </tr>`;
-                    });
-                    
-                    relatorio += `</table>`;
-                } else {
-                    relatorio += `<p>Nenhuma venda realizada hoje.</p>`;
-                }
-                
-                relatorio += `</div>`;
-                
-                const area = document.getElementById('printable-area');
-                area.innerHTML = relatorio;
-                
-                setTimeout(() => {
-                    window.print();
-                    setTimeout(() => area.innerHTML = '', 2000);
-                }, 500);
-            };
-        }
-
-        // --- BACKUP E RESTAURAÇÃO ---
-        function fazerBackup() {
-            const backup = {
-                timestamp: new Date().getTime(),
-                data: {},
-                config: config
-            };
-            
-            const objectStores = ['produtos', 'clientes', 'vendas', 'orcamentos', 'fornecedores', 
-                                 'vendedores', 'ordens_servico', 'consultas', 'compras', 'comissoes'];
-            
-            let storesProcessadas = 0;
-            
-            objectStores.forEach(storeName => {
-                db.transaction(storeName).objectStore(storeName).getAll().onsuccess = (e) => {
-                    backup.data[storeName] = e.target.result;
-                    storesProcessadas++;
-                    
-                    if(storesProcessadas === objectStores.length) {
-                        // Todos os dados foram coletados
-                        const dataStr = JSON.stringify(backup);
-                        const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-                        
-                        const exportFileDefaultName = `backup_optica_${new Date().toISOString().split('T')[0]}.json`;
-                        const linkElement = document.createElement('a');
-                        linkElement.setAttribute('href', dataUri);
-                        linkElement.setAttribute('download', exportFileDefaultName);
-                        linkElement.click();
-                        
-                        // Registrar backup
-                        const backupLog = {
-                            data: new Date().toISOString().split('T')[0],
-                            timestamp: new Date().getTime(),
-                            usuario: usuarioAtual
-                        };
-                        
-                        db.transaction('backup_log', 'readwrite').objectStore('backup_log').add(backupLog);
-                        
-                        alert('Backup realizado com sucesso!');
-                        carregarInfoBackup();
-                    }
-                };
-            });
-        }
-
-        function restaurarBackup(input) {
-            if(!input.files[0]) return;
-            
-            if(!confirm('ATENÇÃO: Isso substituirá todos os dados atuais. Deseja continuar?')) {
-                return;
-            }
-            
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                try {
-                    const backup = JSON.parse(e.target.result);
-                    
-                    // Limpar dados atuais
-                    const objectStores = ['produtos', 'clientes', 'vendas', 'orcamentos', 'fornecedores', 
-                                         'vendedores', 'ordens_servico', 'consultas', 'compras', 'comissoes'];
-                    
-                    objectStores.forEach(storeName => {
-                        const tx = db.transaction(storeName, 'readwrite');
-                        const store = tx.objectStore(storeName);
-                        store.clear();
-                        
-                        if(backup.data[storeName]) {
-                            backup.data[storeName].forEach(item => {
-                                store.add(item);
-                            });
-                        }
-                    });
-                    
-                    // Restaurar configurações
-                    if(backup.config) {
-                        backup.config.id = 1;
-                        db.transaction('config', 'readwrite').objectStore('config').put(backup.config);
-                        config = backup.config;
-                        applyConfig();
-                    }
-                    
-                    alert('Backup restaurado com sucesso! A página será recarregada.');
-                    setTimeout(() => location.reload(), 1000);
-                    
-                } catch(error) {
-                    alert('Erro ao restaurar backup: ' + error.message);
-                }
-            };
-            reader.readAsText(input.files[0]);
-        }
-
-        function carregarInfoBackup() {
-            db.transaction('backup_log').objectStore('backup_log').openCursor(null, 'prev').onsuccess = (e) => {
-                const cursor = e.target.result;
-                if(cursor) {
-                    const lastBackup = cursor.value;
-                    const dataFormatada = new Date(lastBackup.timestamp).toLocaleDateString() + ' ' + 
-                                         new Date(lastBackup.timestamp).toLocaleTimeString();
-                    document.getElementById('last-backup').textContent = dataFormatada + ' por ' + lastBackup.usuario;
-                } else {
-                    document.getElementById('last-backup').textContent = 'Nunca';
-                }
-            };
-        }
-
         // --- HELPER FUNCTIONS ---
         function getClientName(id) {
             if(!id) return 'Consumidor Final';
@@ -3245,7 +3119,10 @@ ${config.tel ? `Telefone: ${config.tel}` : ''}`;
             `;
             document.body.appendChild(modal);
             
-            modal.querySelector('.modal-close').onclick = () => modal.classList.remove('active');
+            modal.querySelector('.modal-close').onclick = function() { 
+                modal.classList.remove('active');
+                document.body.removeChild(modal);
+            };
         }
 
         function exportarParaCSV(dados, nomeArquivo) {
@@ -3265,6 +3142,36 @@ ${config.tel ? `Telefone: ${config.tel}` : ''}`;
         }
 
         function setupEvents() {
+            console.log('Configurando eventos...');
+            
+            // Configurar formulário de login
+            const loginForm = document.getElementById('login-form');
+            if (loginForm) {
+                loginForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    console.log('Formulário de login enviado');
+                    
+                    const u = document.getElementById('login-user').value;
+                    const p = document.getElementById('login-pass').value;
+                    
+                    if (fazerLogin(u, p)) {
+                        console.log('Login realizado com sucesso');
+                    } else {
+                        console.log('Falha no login');
+                    }
+                });
+            } else {
+                console.error('Formulário de login não encontrado!');
+            }
+            
+            // Configurar navegação
+            document.querySelectorAll('.nav-link').forEach(link => {
+                link.onclick = function(e) { 
+                    e.preventDefault(); 
+                    navTo(this.dataset.page); 
+                };
+            });
+            
             // Fechar modais
             document.querySelectorAll('.modal-close').forEach(btn => {
                 btn.onclick = function() { 
@@ -3280,17 +3187,145 @@ ${config.tel ? `Telefone: ${config.tel}` : ''}`;
             });
             
             // Botão de backup
-            document.getElementById('backup-btn').onclick = fazerBackup;
+            const backupBtn = document.getElementById('backup-btn');
+            if (backupBtn) {
+                backupBtn.onclick = fazerBackup;
+            }
             
-            // Inicializar selects
-            setTimeout(() => {
-                carregarVendedoresSelect();
-                carregarFornecedoresSelect();
-            }, 1000);
+            // Botão de logout
+            const logoutBtn = document.getElementById('logout-btn');
+            if (logoutBtn) {
+                logoutBtn.onclick = function() {
+                    sessionStorage.removeItem('user');
+                    location.reload();
+                };
+            }
+            
+            // Configurar leitor de código de barras no PDV
+            const vendaSearch = document.getElementById('venda-search');
+            if (vendaSearch) {
+                vendaSearch.addEventListener('keydown', function(e) {
+                    if(e.key === 'Enter') {
+                        e.preventDefault();
+                        const termo = this.value.trim();
+                        if(!termo) return;
+
+                        // Busca exata por código ou parcial por nome
+                        let prod = produtosCache.find(p => p.cod === termo);
+                        
+                        if(!prod) {
+                            // Se não achou código, tenta nome
+                            const matches = produtosCache.filter(p => p.nome.toLowerCase().includes(termo.toLowerCase()));
+                            if(matches.length === 1) prod = matches[0];
+                        }
+
+                        if(prod) {
+                            const qtd = parseInt(document.getElementById('venda-qtd-add').value) || 1;
+                            addAoCarrinho(prod, qtd);
+                            this.value = '';
+                            document.getElementById('venda-qtd-add').value = 1;
+                            // Beep sound simulation
+                            try { new AudioContext().createOscillator().start().stop(); } catch(e) {}
+                        } else {
+                            alert('Produto não encontrado!');
+                        }
+                    }
+                });
+            }
+            
+            console.log('Eventos configurados com sucesso');
         }
 
-        // Inicializar
-        setupEvents();
+        // Adicionar dados iniciais para teste se o banco estiver vazio
+        function adicionarDadosIniciais() {
+            console.log('Verificando dados iniciais...');
+            const tx = db.transaction('config', 'readonly');
+            tx.objectStore('config').get(1).onsuccess = function(e) {
+                if (!e.target.result) {
+                    console.log('Adicionando dados iniciais...');
+                    // Adicionar configuração padrão
+                    const configInicial = {
+                        id: 1,
+                        nome: 'Ótica VisionPlus Premium',
+                        tel: '(11) 99999-9999',
+                        end: 'Rua Exemplo, 123 - Centro - São Paulo/SP',
+                        msg: 'Obrigado pela preferência!',
+                        comissao: 5,
+                        impressora: 'termica',
+                        copias: 1,
+                        textoExtra: ''
+                    };
+                    
+                    db.transaction('config', 'readwrite').objectStore('config').put(configInicial);
+                    
+                    // Adicionar produtos de exemplo
+                    const produtosExemplo = [
+                        {
+                            nome: 'Armação Masculina Preto',
+                            cod: '7891234567890',
+                            cat: 'Armacao',
+                            custo: 45.00,
+                            preco: 120.00,
+                            qtd: 10,
+                            min: 3,
+                            max: 50,
+                            caracteristicas: 'Cor: Preto, Material: Acetato'
+                        },
+                        {
+                            nome: 'Lente Transição Cinza',
+                            cod: '7899876543210',
+                            cat: 'Lente',
+                            custo: 80.00,
+                            preco: 250.00,
+                            qtd: 15,
+                            min: 5,
+                            max: 100,
+                            caracteristicas: 'Fotossensível, Proteção UV'
+                        }
+                    ];
+                    
+                    const txProd = db.transaction('produtos', 'readwrite');
+                    produtosExemplo.forEach(prod => {
+                        txProd.objectStore('produtos').add(prod);
+                    });
+                    
+                    // Adicionar cliente de exemplo
+                    const clienteExemplo = {
+                        nome: 'João da Silva',
+                        cpf: '123.456.789-00',
+                        tel: '11999999999',
+                        email: 'joao@email.com',
+                        nasc: '1985-05-15',
+                        genero: 'M',
+                        endereco: 'Rua das Flores, 123',
+                        obs: 'Cliente preferencial',
+                        dataCadastro: new Date().toISOString().split('T')[0]
+                    };
+                    
+                    db.transaction('clientes', 'readwrite').objectStore('clientes').add(clienteExemplo);
+                    
+                    // Adicionar vendedor de exemplo
+                    const vendedorExemplo = {
+                        nome: 'Maria Souza',
+                        cpf: '987.654.321-00',
+                        telefone: '11988888888',
+                        email: 'maria@email.com',
+                        comissao: 5,
+                        status: 'ativo',
+                        obs: 'Vendedora principal'
+                    };
+                    
+                    db.transaction('vendedores', 'readwrite').objectStore('vendedores').add(vendedorExemplo);
+                    
+                    console.log('Dados iniciais adicionados com sucesso!');
+                }
+            };
+        }
+        
+        // Executar após inicialização
+        setTimeout(() => {
+            adicionarDadosIniciais();
+        }, 1000);
     </script>
 </body>
 </html>
